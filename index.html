@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aetheria - Kinetic Particle Sphere</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- External CDNs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --primary: #00ffe7;
+      --accent: #ff007f;
+      --bg-dark: #050508;
+      --glass-bg: rgba(10, 10, 15, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-dark);
+      color: #f0f0f5;
+      font-family: 'Space Grotesk', sans-serif;
+      overflow: hidden;
+      user-select: none;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* WebGL Canvas */
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Webcam video element used as a hidden source or fullscreen background */
+    #webcam {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: -2;
+      transform: scaleX(-1); /* Mirror camera feed */
+      opacity: 0;
+      filter: grayscale(90%) blur(8px) brightness(0.25);
+      transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), filter 0.8s ease;
+      pointer-events: none;
+    }
+
+    #webcam.bg-active {
+      opacity: 0.16;
+    }
+
+    /* HUD overlay container */
+    #hud-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 32px;
+    }
+
+    .interactive {
+      pointer-events: auto;
+    }
+
+    /* Top Left Header */
+    .hud-header {
+      pointer-events: none;
+    }
+
+    .hud-header h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: 6px;
+      margin: 0 0 6px 0;
+      background: linear-gradient(180deg, #ffffff 0%, #a5a5b5 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 30px rgba(255, 255, 255, 0.08);
+    }
+
+    .hud-header p {
+      font-size: 9px;
+      font-weight: 400;
+      letter-spacing: 2.5px;
+      margin: 0;
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+    }
+
+    /* Top Right Stats */
+    .hud-stats {
+      position: fixed;
+      top: 32px;
+      right: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+
+    .glass-pill {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px) saturate(140%);
+      border: 1px solid var(--glass-border);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: rgba(255, 255, 255, 0.5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .glass-pill span.value {
+      color: var(--primary);
+      font-weight: 600;
+      text-shadow: 0 0 8px rgba(0, 255, 231, 0.35);
+    }
+
+    .hud-pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #34c759;
+      box-shadow: 0 0 8px #34c759;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    /* Bottom Left Controls Panel */
+    .hud-controls {
+      position: fixed;
+      bottom: 32px;
+      left: 32px;
+      width: 290px;
+    }
+
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px) saturate(140%);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    .hud-controls h2 {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      letter-spacing: 2px;
+      margin: 0 0 14px 0;
+      color: #ffffff;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 8px;
+    }
+
+    .control-guide {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .guide-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    .guide-label {
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .guide-action {
+      color: rgba(255, 255, 255, 0.85);
+      font-weight: 500;
+      text-align: right;
+    }
+
+    .btn-toggle {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 10px 14px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      text-transform: uppercase;
+    }
+
+    .btn-toggle:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--primary);
+      box-shadow: 0 0 12px rgba(0, 255, 231, 0.2);
+    }
+
+    .btn-toggle.active {
+      background: rgba(0, 255, 231, 0.08);
+      border-color: var(--primary);
+      color: var(--primary);
+      text-shadow: 0 0 8px rgba(0, 255, 231, 0.2);
+      box-shadow: 0 0 15px rgba(0, 255, 231, 0.15);
+    }
+
+    /* Bottom Right Camera Preview Card */
+    #preview-container {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      width: 180px;
+      height: 135px;
+      overflow: hidden;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      border: 1px solid var(--glass-border);
+    }
+
+    #preview-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror feed */
+      background-color: #08080a;
+    }
+
+    #preview-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(8, 8, 12, 0.85);
+      backdrop-filter: blur(4px);
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-align: center;
+      padding: 5px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Circular Pinch-Progress Ring overlay */
+    #charge-ring {
+      display: none;
+      position: absolute;
+      width: 80px;
+      height: 80px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 100;
+      transition: transform 0.08s ease-out;
+    }
+
+    #charge-ring svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Camera error overlay */
+    #camera-error {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1000;
+      width: 330px;
+      text-align: center;
+    }
+
+    #camera-error h3 {
+      color: #ff3b30;
+      margin: 0 0 12px 0;
+      font-family: 'Cinzel', serif;
+      letter-spacing: 2px;
+      font-size: 15px;
+    }
+
+    #camera-error p {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.65);
+      line-height: 1.6;
+      margin: 0 0 20px 0;
+    }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: var(--bg-dark);
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 1s ease;
+    }
+
+    #loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader {
+      width: 48px;
+      height: 48px;
+      border: 2px solid rgba(255, 255, 255, 0.05);
+      border-radius: 50%;
+      border-top-color: var(--primary);
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+      box-shadow: 0 0 15px rgba(0, 255, 231, 0.1);
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    #loading-overlay h2 {
+      font-family: 'Cinzel', serif;
+      font-size: 18px;
+      letter-spacing: 4px;
+      margin: 0 0 8px 0;
+    }
+
+    #loading-overlay p {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      margin: 0;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loading-overlay">
+    <div class="loader"></div>
+    <h2>AETHERIA</h2>
+    <p>Loading hand tracking assets...</p>
+  </div>
+
+  <!-- Webcam video stream element -->
+  <video id="webcam" autoplay playsinline muted></video>
+
+  <!-- WebGL Render Canvas -->
+  <div id="canvas-container"></div>
+
+  <!-- HUD Interface -->
+  <div id="hud-container">
+    
+    <!-- Top-left Header -->
+    <div class="hud-header">
+      <h1>A E T H E R I A</h1>
+      <p>Kinetic Particle Synthesis</p>
+    </div>
+
+    <!-- Top-right Stats -->
+    <div class="hud-stats">
+      <div class="glass-pill">
+        <div class="hud-pulse-dot"></div>
+        Tracking Status: <span id="hud-tracking" class="value">Idle</span>
+      </div>
+      <div class="glass-pill">
+        Active Gesture: <span id="hud-gesture" class="value">None</span>
+      </div>
+      <div class="glass-pill">
+        Fingers Up: <span id="hud-fingers" class="value">-</span>
+      </div>
+      <div class="glass-pill">
+        FPS: <span id="hud-fps" class="value">0</span>
+      </div>
+    </div>
+
+    <!-- Bottom-left Controls -->
+    <div class="hud-controls interactive">
+      <div class="glass-card">
+        <h2>GESTURE CONTROLS</h2>
+        <div class="control-guide">
+          <div class="guide-item">
+            <span class="guide-label">Single Hand</span>
+            <span class="guide-action">Move & Rotate Sphere</span>
+          </div>
+          <div class="guide-item">
+            <span class="guide-label">Pinch & Hold</span>
+            <span class="guide-action">Charge ring (Release -> Explode)</span>
+          </div>
+          <div class="guide-item">
+            <span class="guide-label">Two Hands</span>
+            <span class="guide-action">Spread/Close to Scale</span>
+          </div>
+          <div class="guide-item">
+            <span class="guide-label">Fingers Up</span>
+            <span class="guide-action">Change Color (0-10)</span>
+          </div>
+        </div>
+        <button id="btn-bg-toggle" class="btn-toggle">Toggle Webcam Background</button>
+      </div>
+    </div>
+
+    <!-- Bottom-right Webcam Track Preview -->
+    <div id="preview-container" class="glass-card">
+      <canvas id="preview-canvas" width="320" height="240"></canvas>
+      <div id="preview-label">CAMERA FEED</div>
+    </div>
+
+  </div>
+
+  <!-- Circular progress ring for Pinch-and-Hold gesture -->
+  <div id="charge-ring">
+    <svg viewBox="0 0 80 80">
+      <circle cx="40" cy="40" r="34" stroke="rgba(255, 255, 255, 0.08)" stroke-width="3" fill="none" />
+      <circle id="charge-progress" cx="40" cy="40" r="34" stroke="var(--primary)" stroke-width="4" fill="none"
+              stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"
+              style="transform: rotate(-90deg); transform-origin: 40px 40px; transition: stroke-dashoffset 0.03s linear;" />
+    </svg>
+  </div>
+
+  <!-- Camera Access Error Modal -->
+  <div id="camera-error" class="glass-card interactive">
+    <h3>CAMERA ACCESS REQUIRED</h3>
+    <p>
+      This interactive experience requires camera access to track your hand movements. Please permit camera access and refresh the page.
+    </p>
+    <button class="btn-toggle" onclick="location.reload()">TRY AGAIN</button>
+  </div>
+
+  <!-- Main JavaScript Logic -->
+  <script type="module">
+    // --- HUD Element Bindings ---
+    const hudTracking = document.getElementById('hud-tracking');
+    const hudGesture = document.getElementById('hud-gesture');
+    const hudFingers = document.getElementById('hud-fingers');
+    const hudFps = document.getElementById('hud-fps');
+    const btnBgToggle = document.getElementById('btn-bg-toggle');
+    const webcamVideo = document.getElementById('webcam');
+    const previewCanvas = document.getElementById('preview-canvas');
+    const previewCtx = previewCanvas.getContext('2d');
+    const chargeRing = document.getElementById('charge-ring');
+    const chargeProgressCircle = document.getElementById('charge-progress');
+    const loadingOverlay = document.getElementById('loading-overlay');
+
+    // --- Color Palettes (0-10 Fingers Up) ---
+    const PALETTES = [
+      ['#00f0ff', '#ffffff'],           // 0 fingers: Neon Ice Blue & White
+      ['#8a2be2', '#da70d6'],           // 1 finger: Electric Violet & Lilac
+      ['#ff4500', '#ffd700', '#ff1493'], // 2 fingers: Sunset Orange, Gold & Crimson
+      ['#00fa9a', '#3cb371', '#00ff7f'], // 3 fingers: Emerald Mint & Sage
+      ['#ff007f', '#ff00ff', '#e0115f'], // 4 fingers: Hot Magenta & Cyber Pink
+      ['#ffaa00', '#ffdd00', '#ff8800'], // 5 fingers: Sunburst Yellow, Tangerine & Amber
+      ['#1e90ff', '#0000ff', '#4b0082'], // 6 fingers: Deep Royal Blue, Sapphire & Indigo
+      ['#e6e6fa', '#fff0f5', '#b0c4de'], // 7 fingers: Ethereal Lavender, Pearl & Slate
+      ['#00ffe7', '#008080', '#adff2f'], // 8 fingers: Cyberpunk Teal, Aqua & Lime
+      ['#e60000', '#ff3333', '#990000'], // 9 fingers: Flaming Crimson, Scarlet & Ruby
+      ['rainbow']                       // 10 fingers: Rainbow spectrum
+    ];
+
+    // --- State Variables ---
+    let currentPaletteIndex = 0;
+    let cameraActive = false;
+    let isWebcamBgActive = false;
+
+    // Smooth transforms for the sphere
+    const spherePos = new THREE.Vector3(0, 0, 0);
+    const sphereTargetPos = new THREE.Vector3(0, 0, 0);
+    let sphereScale = 1.0;
+    let sphereTargetScale = 1.0;
+    const sphereRotation = new THREE.Quaternion();
+    const sphereTargetRotation = new THREE.Quaternion();
+    
+    // Idle rotation values
+    let idleAngleX = 0;
+    let idleAngleY = 0;
+
+    // Gesture status
+    let isCharging = false;
+    let chargeProgress = 0.0;
+    let projectedPinchPos = new THREE.Vector3();
+    let pinchX = 0.5;
+    let pinchY = 0.5;
+
+    let isExploding = false;
+    let explosionTimer = 0.0;
+    let explosionForce = 0.0;
+
+    // FPS counting
+    let fps = 0;
+    let frameCount = 0;
+    let lastFrameTime = performance.now();
+
+    // --- Three.js Setup ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    
+    // Setup Perspective Camera
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 8;
+
+    // Setup WebGL Renderer with Alpha transparency support
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // Create Canvas Particle Texture (Soft Glow Point)
+    function createParticleTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      grad.addColorStop(0.2, 'rgba(255, 255, 255, 0.85)');
+      grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.25)');
+      grad.addColorStop(1.0, 'rgba(255, 255, 255, 0)');
+      
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      
+      return new THREE.CanvasTexture(canvas);
+    }
+    const particleTexture = createParticleTexture();
+
+    // Shaders for rendering particles of dynamic size and vertex color
+    const vertexShader = `
+      attribute float size;
+      varying vec3 vColor;
+      void main() {
+        vColor = color;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (300.0 / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const fragmentShader = `
+      uniform sampler2D pointTexture;
+      varying vec3 vColor;
+      void main() {
+        gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
+      }
+    `;
+
+    const particleMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        pointTexture: { value: particleTexture }
+      },
+      vertexShader: vertexShader,
+      fragmentShader: fragmentShader,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      vertexColors: true
+    });
+
+    // Particle buffers setup (3000 particles)
+    const PARTICLE_COUNT = 3000;
+    const geometry = new THREE.BufferGeometry();
+
+    const initialPositions = new Float32Array(PARTICLE_COUNT * 3);
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const velocities = new Float32Array(PARTICLE_COUNT * 3);
+    const colors = new Float32Array(PARTICLE_COUNT * 3);
+    const targetColors = new Float32Array(PARTICLE_COUNT * 3);
+    const sizes = new Float32Array(PARTICLE_COUNT);
+
+    // Initialize particles uniformly on a Sphere shell using Fibonacci distribution
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const y = 1.0 - (i / (PARTICLE_COUNT - 1)) * 2.0; // Y goes from 1 to -1
+      const radius = Math.sqrt(1.0 - y * y); // Radius at Y
+      
+      const goldenRatio = (1.0 + Math.sqrt(5.0)) / 2.0;
+      const theta = 2.0 * Math.PI * goldenRatio * i;
+      
+      const x = Math.cos(theta) * radius;
+      const z = Math.sin(theta) * radius;
+      
+      const R = 2.2; // Base Sphere Radius
+      
+      initialPositions[i*3] = x * R;
+      initialPositions[i*3+1] = y * R;
+      initialPositions[i*3+2] = z * R;
+      
+      positions[i*3] = x * R;
+      positions[i*3+1] = y * R;
+      positions[i*3+2] = z * R;
+      
+      velocities[i*3] = 0;
+      velocities[i*3+1] = 0;
+      velocities[i*3+2] = 0;
+      
+      sizes[i] = 0.05 + Math.random() * 0.15;
+    }
+
+    // Set initial colors (cyan/white)
+    const colA = new THREE.Color(PALETTES[0][0]);
+    const colB = new THREE.Color(PALETTES[0][1]);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const mix = colA.clone().lerp(colB, Math.random());
+      colors[i*3] = mix.r;
+      colors[i*3+1] = mix.g;
+      colors[i*3+2] = mix.b;
+      
+      targetColors[i*3] = mix.r;
+      targetColors[i*3+1] = mix.g;
+      targetColors[i*3+2] = mix.b;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const particleSystem = new THREE.Points(geometry, particleMaterial);
+    scene.add(particleSystem);
+
+    // --- Color Changing Function ---
+    function changePalette(index) {
+      if (index === currentPaletteIndex) return;
+      currentPaletteIndex = index;
+      const palette = PALETTES[index];
+      
+      if (palette[0] === 'rainbow') {
+        // Compute individual hues based on index
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+          const color = new THREE.Color();
+          color.setHSL(i / PARTICLE_COUNT, 0.85, 0.6);
+          targetColors[i*3] = color.r;
+          targetColors[i*3+1] = color.g;
+          targetColors[i*3+2] = color.b;
+        }
+      } else {
+        const colorsList = palette.map(c => new THREE.Color(c));
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+          let mixColor;
+          if (colorsList.length === 2) {
+            mixColor = colorsList[0].clone().lerp(colorsList[1], Math.random());
+          } else {
+            const rand = Math.random();
+            if (rand < 0.5) {
+              mixColor = colorsList[0].clone().lerp(colorsList[1], rand * 2.0);
+            } else {
+              mixColor = colorsList[1].clone().lerp(colorsList[2], (rand - 0.5) * 2.0);
+            }
+          }
+          targetColors[i*3] = mixColor.r;
+          targetColors[i*3+1] = mixColor.g;
+          targetColors[i*3+2] = mixColor.b;
+        }
+      }
+    }
+
+    // --- Circular Progress Updates ---
+    function updateChargeRing(x, y, progress) {
+      const screenX = (1.0 - x) * window.innerWidth;
+      const screenY = y * window.innerHeight;
+      chargeRing.style.left = `${screenX}px`;
+      chargeRing.style.top = `${screenY}px`;
+      chargeRing.style.display = 'block';
+      chargeRing.style.transform = `translate(-50%, -50%) scale(${1.0 + progress * 0.4})`;
+
+      // Circumference is 213.6
+      const offset = 213.6 * (1.0 - progress);
+      chargeProgressCircle.style.strokeDashoffset = offset;
+      
+      // Color shifts from magenta to cyan
+      const hue = 320 - (progress * 140);
+      chargeProgressCircle.style.stroke = `hsl(${hue}, 100%, 65%)`;
+      chargeRing.style.filter = `drop-shadow(0 0 ${progress * 15}px hsl(${hue}, 100%, 60%))`;
+    }
+
+    function hideChargeRing() {
+      chargeRing.style.display = 'none';
+    }
+
+    // --- Particle Physics Explosion ---
+    function triggerExplosion(x, y, chargeVal) {
+      isCharging = false;
+      hideChargeRing();
+      
+      isExploding = true;
+      explosionTimer = 1.0;
+      explosionForce = chargeVal * 0.75;
+      
+      // Project 2D screen coordinates of pinch release to 3D space
+      const expSourceX = (1.0 - x - 0.5) * 13.0;
+      const expSourceY = (0.5 - y) * 9.0;
+      const expSourceZ = spherePos.z;
+      
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const px = positions[i3];
+        const py = positions[i3+1];
+        const pz = positions[i3+2];
+        
+        let dx = px - expSourceX;
+        let dy = py - expSourceY;
+        let dz = pz - expSourceZ;
+        
+        // Add tiny offset to avoid division by zero
+        dx += (Math.random() - 0.5) * 0.15;
+        dy += (Math.random() - 0.5) * 0.15;
+        dz += (Math.random() - 0.5) * 0.15;
+        
+        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+        
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        const dirZ = dz / dist;
+        
+        // Explosion velocity vector proportional to charge
+        const speed = explosionForce * (0.6 + Math.random() * 0.9) * 1.6;
+        
+        velocities[i3] += dirX * speed;
+        velocities[i3+1] += dirY * speed;
+        velocities[i3+2] += dirZ * speed;
+      }
+      
+      // Visual pulse
+      hudGesture.textContent = "Supernova Exploding";
+      hudGesture.style.color = "var(--accent)";
+      setTimeout(() => {
+        hudGesture.style.color = "";
+      }, 800);
+    }
+
+    // --- Main Particle Animation & Physics Loop ---
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // 1. Update FPS HUD
+      const nowTime = performance.now();
+      frameCount++;
+      if (nowTime - lastFrameTime >= 1000) {
+        fps = Math.round((frameCount * 1000) / (nowTime - lastFrameTime));
+        hudFps.textContent = fps;
+        frameCount = 0;
+        lastFrameTime = nowTime;
+      }
+
+      // 2. Interpolate base sphere position, scale, and rotation towards targets
+      spherePos.lerp(sphereTargetPos, 0.08);
+      sphereScale += (sphereTargetScale - sphereScale) * 0.08;
+      sphereRotation.slerp(sphereTargetRotation, 0.08);
+
+      // 3. Physics Simulation for each individual particle
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        
+        // Compute base target position of the particle on the transformed sphere
+        const px = initialPositions[i3];
+        const py = initialPositions[i3 + 1];
+        const pz = initialPositions[i3 + 2];
+        
+        const localPos = new THREE.Vector3(px, py, pz).multiplyScalar(sphereScale);
+        localPos.applyQuaternion(sphereRotation);
+        const targetWorldPos = localPos.add(spherePos);
+        
+        let curX = positions[i3];
+        let curY = positions[i3+1];
+        let curZ = positions[i3+2];
+        
+        let vx = velocities[i3];
+        let vy = velocities[i3+1];
+        let vz = velocities[i3+2];
+        
+        if (isExploding) {
+          // EXPLOSION STATE: Particles fly out radially with inertia
+          curX += vx;
+          curY += vy;
+          curZ += vz;
+          
+          vx *= 0.93; // Air resistance / decay
+          vy *= 0.93;
+          vz *= 0.93;
+          
+          // Re-attraction force gets stronger quadratically as timer decays
+          const returnT = Math.max(0, 1.0 - explosionTimer);
+          const returnForce = returnT * returnT * 0.14; 
+          
+          vx += (targetWorldPos.x - curX) * returnForce;
+          vy += (targetWorldPos.y - curY) * returnForce;
+          vz += (targetWorldPos.z - curZ) * returnForce;
+          
+          // Swirl turbulence noise
+          vx += (Math.random() - 0.5) * 0.01;
+          vy += (Math.random() - 0.5) * 0.01;
+          vz += (Math.random() - 0.5) * 0.01;
+          
+        } else if (isCharging) {
+          // CHARGING STATE: Squeezed attraction to pinch point + violent vibration
+          const vib = chargeProgress * 0.38;
+          const vxVib = (Math.random() - 0.5) * vib;
+          const vyVib = (Math.random() - 0.5) * vib;
+          const vzVib = (Math.random() - 0.5) * vib;
+          
+          const pullK = chargeProgress * 0.06;
+          const pullX = (projectedPinchPos.x - curX) * pullK;
+          const pullY = (projectedPinchPos.y - curY) * pullK;
+          const pullZ = (projectedPinchPos.z - curZ) * pullK;
+          
+          // Deform target shape slightly towards pinch point
+          const deformT = targetWorldPos.clone().lerp(projectedPinchPos, chargeProgress * 0.35);
+          
+          vx = vx * 0.72 + (deformT.x - curX) * 0.08 + pullX + vxVib;
+          vy = vy * 0.72 + (deformT.y - curY) * 0.08 + pullY + vyVib;
+          vz = vz * 0.72 + (deformT.z - curZ) * 0.08 + pullZ + vzVib;
+          
+          curX += vx;
+          curY += vy;
+          curZ += vz;
+          
+        } else {
+          // NORMAL STATE: Elastic spring attraction back to target positions
+          const attractForce = 0.085;
+          vx = vx * 0.8 + (targetWorldPos.x - curX) * attractForce;
+          vy = vy * 0.8 + (targetWorldPos.y - curY) * attractForce;
+          vz = vz * 0.8 + (targetWorldPos.z - curZ) * attractForce;
+          
+          // Smooth organic floating drift wave
+          const time = Date.now() * 0.0008;
+          vx += Math.sin(time + i) * 0.002;
+          vy += Math.cos(time * 0.7 + i) * 0.002;
+          vz += Math.sin(time * 1.1 + i) * 0.002;
+          
+          curX += vx;
+          curY += vy;
+          curZ += vz;
+        }
+        
+        positions[i3] = curX;
+        positions[i3+1] = curY;
+        positions[i3+2] = curZ;
+        
+        velocities[i3] = vx;
+        velocities[i3+1] = vy;
+        velocities[i3+2] = vz;
+      }
+
+      if (isExploding) {
+        explosionTimer -= 0.016; // Decay timer
+        if (explosionTimer <= 0) {
+          isExploding = false;
+        }
+      }
+
+      // Smooth color transitions
+      for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+        colors[i] += (targetColors[i] - colors[i]) * 0.07;
+      }
+
+      // Tell WebGL to update the buffers
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.color.needsUpdate = true;
+
+      // Render Scene
+      renderer.render(scene, camera);
+    }
+
+    // --- Window resizing ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // --- Robust Finger Counting Algorithm ---
+    function countExtendedFingers(landmarks) {
+      let count = 0;
+
+      // Check non-thumb fingers (Index, Middle, Ring, Pinky)
+      // Tip y-coordinate must be less than PIP joint y-coordinate (Y is down in screen coordinates)
+      if (landmarks[8].y < landmarks[6].y) count++;   // Index
+      if (landmarks[12].y < landmarks[10].y) count++; // Middle
+      if (landmarks[16].y < landmarks[14].y) count++; // Ring
+      if (landmarks[20].y < landmarks[18].y) count++; // Pinky
+
+      // Rotation & Handedness Invariant Thumb extended checker:
+      // If distance from thumb tip (4) to index finger base MCP (5) is 
+      // greater than distance from thumb IP (3) to index finger base (5) * 1.15,
+      // it means the thumb is extended outward.
+      const d4_5 = Math.hypot(landmarks[4].x - landmarks[5].x, landmarks[4].y - landmarks[5].y);
+      const d3_5 = Math.hypot(landmarks[3].x - landmarks[5].x, landmarks[3].y - landmarks[5].y);
+      if (d4_5 > d3_5 * 1.15) {
+        count++;
+      }
+
+      return count;
+    }
+
+    // --- MediaPipe Callback processing ---
+    function onResults(results) {
+      // Draw background camera frame and tracked overlay on bottom-right preview canvas
+      previewCtx.save();
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(results.image, 0, 0, previewCanvas.width, previewCanvas.height);
+      
+      const numHands = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+      
+      if (numHands > 0) {
+        hudTracking.textContent = "Active";
+        hudTracking.style.color = "var(--primary)";
+        
+        // Draw MediaPipe skeleton in preview widget
+        for (const landmarks of results.multiHandLandmarks) {
+          drawConnectors(previewCtx, landmarks, HAND_CONNECTIONS, { color: '#00ffe7', lineWidth: 1.5 });
+          drawLandmarks(previewCtx, landmarks, { color: '#ff007f', lineWidth: 0.5, radius: 1.5 });
+        }
+      } else {
+        hudTracking.textContent = "Searching...";
+        hudTracking.style.color = "";
+      }
+
+      // --- Processing Hand Actions ---
+      if (numHands === 1) {
+        // Single hand tracking: Moves and Rotates
+        const landmarks = results.multiHandLandmarks[0];
+        
+        // 1. Calculate color changes by counting fingers
+        const fingers = countExtendedFingers(landmarks);
+        hudFingers.textContent = fingers;
+        changePalette(fingers);
+
+        // 2. Position tracking: Palm center mapping to 3D Coordinates
+        // Palm center as average of wrist (0), index base (5), pinky base (17)
+        const Pc = {
+          x: (landmarks[0].x + landmarks[5].x + landmarks[17].x) / 3,
+          y: (landmarks[0].y + landmarks[5].y + landmarks[17].y) / 3,
+          z: (landmarks[0].z + landmarks[5].z + landmarks[17].z) / 3
+        };
+
+        // Z depth proxy based on wrist-to-index base size
+        const d0_5 = Math.hypot(landmarks[0].x - landmarks[5].x, landmarks[0].y - landmarks[5].y);
+        const targetZ = (d0_5 - 0.12) * 35.0; // Scale depth coefficient
+        
+        sphereTargetPos.set(
+          (1.0 - Pc.x - 0.5) * 13.0, 
+          (0.5 - Pc.y) * 9.0, 
+          THREE.MathUtils.clamp(targetZ, -8, 2.5)
+        );
+
+        // 3. Rotation tracking: Construct rotation matrix from palm coordinate frame
+        const vUp = new THREE.Vector3(landmarks[9].x - landmarks[0].x, landmarks[9].y - landmarks[0].y, landmarks[9].z - landmarks[0].z);
+        const vSide = new THREE.Vector3(landmarks[17].x - landmarks[5].x, landmarks[17].y - landmarks[5].y, landmarks[17].z - landmarks[5].z);
+        
+        vUp.normalize();
+        vSide.normalize();
+        
+        const vForward = new THREE.Vector3().crossVectors(vSide, vUp).normalize();
+        const vSideOrtho = new THREE.Vector3().crossVectors(vUp, vForward).normalize();
+
+        // Adjust rotation for mirroring
+        vSideOrtho.x *= -1;
+        
+        const rotationMatrix = new THREE.Matrix4().makeBasis(vSideOrtho, vUp, vForward);
+        sphereTargetRotation.setFromRotationMatrix(rotationMatrix);
+
+        // 4. Pinch detection (Thumb tip 4 to Index tip 8)
+        const pinchDist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+        if (pinchDist < 0.038) {
+          isCharging = true;
+          pinchX = (landmarks[4].x + landmarks[8].x) / 2;
+          pinchY = (landmarks[4].y + landmarks[8].y) / 2;
+          
+          // Project 2D pinch center to 3D plane matching current sphere's depth
+          projectedPinchPos.set(
+            (1.0 - pinchX - 0.5) * 13.0,
+            (0.5 - pinchY) * 9.0,
+            spherePos.z
+          );
+          
+          // Accumulate charge progress (roughly 1 second to fill)
+          chargeProgress = Math.min(1.0, chargeProgress + 0.016);
+          updateChargeRing(pinchX, pinchY, chargeProgress);
+          
+          hudGesture.textContent = "Pinch & Hold (" + Math.round(chargeProgress * 100) + "%)";
+        } else {
+          // Pinch released
+          if (isCharging) {
+            triggerExplosion(pinchX, pinchY, chargeProgress);
+            chargeProgress = 0.0;
+          } else {
+            hudGesture.textContent = "Move & Rotate";
+            hideChargeRing();
+          }
+        }
+        
+        // Reset scale back to default slowly
+        sphereTargetScale = 1.0;
+
+      } else if (numHands === 2) {
+        // Two hands tracking: Scale and Position
+        hideChargeRing();
+        isCharging = false;
+        
+        const h1 = results.multiHandLandmarks[0];
+        const h2 = results.multiHandLandmarks[1];
+
+        // 1. Calculate color changes by counting fingers of both hands
+        const f1 = countExtendedFingers(h1);
+        const f2 = countExtendedFingers(h2);
+        const totalFingers = Math.min(10, f1 + f2);
+        hudFingers.textContent = totalFingers;
+        changePalette(totalFingers);
+
+        // 2. Position tracking: Centered on midpoint between palm centers
+        const Pc1 = {
+          x: (h1[0].x + h1[5].x + h1[17].x) / 3,
+          y: (h1[0].y + h1[5].y + h1[17].y) / 3,
+          z: (h1[0].z + h1[5].z + h1[17].z) / 3
+        };
+        const Pc2 = {
+          x: (h2[0].x + h2[5].x + h2[17].x) / 3,
+          y: (h2[0].y + h2[5].y + h2[17].y) / 3,
+          z: (h2[0].z + h2[5].z + h2[17].z) / 3
+        };
+
+        const midX = (Pc1.x + Pc2.x) / 2;
+        const midY = (Pc1.y + Pc2.y) / 2;
+        const midZ = (Pc1.z + Pc2.z) / 2;
+        
+        sphereTargetPos.set((1.0 - midX - 0.5) * 13.0, (0.5 - midY) * 9.0, spherePos.z);
+
+        // 3. Scale tracking: Hand-to-hand distance
+        const dist = Math.hypot(Pc1.x - Pc2.x, Pc1.y - Pc2.y, Pc1.z - Pc2.z);
+        // Map distance [0.12 - 0.6] to scale [0.4 - 3.5]
+        const targetScale = THREE.MathUtils.clamp((dist - 0.12) * 5.0 + 0.4, 0.35, 3.8);
+        sphereTargetScale = targetScale;
+
+        // 4. Rotation: Align sphere horizontal axis to the line connecting hands
+        const dx = -(Pc2.x - Pc1.x); // Mirrored mapping
+        const dy = Pc2.y - Pc1.y;
+        const dz = Pc2.z - Pc1.z;
+        
+        const axis = new THREE.Vector3(dx, dy, dz).normalize();
+        const targetRot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
+        sphereTargetRotation.copy(targetRot);
+
+        hudGesture.textContent = "Two-Hand Scaling";
+
+      } else {
+        // No hands tracked: Return sphere to center and execute idle float animation
+        hideChargeRing();
+        isCharging = false;
+        
+        hudFingers.textContent = "-";
+        if (isExploding) {
+          hudGesture.textContent = "Supernova Exploding";
+        } else {
+          hudGesture.textContent = "None (Idle)";
+        }
+        
+        sphereTargetPos.set(0, 0.2, 0);
+        sphereTargetScale = 1.0;
+        
+        // Idle rotation angles increment
+        idleAngleY += 0.005;
+        idleAngleX += 0.0035;
+        sphereTargetRotation.setFromEuler(new THREE.Euler(idleAngleX, idleAngleY, 0));
+      }
+
+      previewCtx.restore();
+    }
+
+    // --- Webcam Toggle Management ---
+    btnBgToggle.addEventListener('click', () => {
+      isWebcamBgActive = !isWebcamBgActive;
+      if (isWebcamBgActive) {
+        webcamVideo.classList.add('bg-active');
+        btnBgToggle.classList.add('active');
+      } else {
+        webcamVideo.classList.remove('bg-active');
+        btnBgToggle.classList.remove('active');
+      }
+    });
+
+    // --- Initialization and Assets Loading ---
+    async function init() {
+      try {
+        // Request video permission to verify availability
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: 640, height: 480, facingMode: 'user' } 
+        });
+        
+        // Terminate stream tracks so MediaPipe's Camera helper can open the device
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Create MediaPipe hands instance
+        const hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.65,
+          minTrackingConfidence: 0.65
+        });
+
+        hands.onResults(onResults);
+
+        // Instantiate camera capture utility
+        const cameraHelper = new Camera(webcamVideo, {
+          onFrame: async () => {
+            await hands.send({ image: webcamVideo });
+          },
+          width: 640,
+          height: 480
+        });
+
+        // Start camera capturing
+        cameraHelper.start();
+        cameraActive = true;
+        
+        // Fade out load screen once camera feed successfully initiates
+        const fadeOutLoading = () => {
+          setTimeout(() => {
+            loadingOverlay.classList.add('fade-out');
+            setTimeout(() => loadingOverlay.remove(), 1000);
+          }, 800);
+        };
+
+        if (webcamVideo.readyState >= 1) {
+          fadeOutLoading();
+        } else {
+          webcamVideo.addEventListener('loadedmetadata', fadeOutLoading);
+        }
+      } catch (err) {
+        console.error("Camera access failed:", err);
+        loadingOverlay.remove();
+        document.getElementById('camera-error').style.display = 'block';
+      }
+    }
+
+    // Start everything on script load
+    init();
+    
+    // Start animation render loop
+    animate();
+  </script>
+</body>
+</html>
